@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Ruler, RefreshCw, Thermometer, Gauge, Save, Eye } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Ruler, RefreshCw, Thermometer, Gauge, Save, Eye, ArrowLeft, Lightbulb, GitBranch } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
 import Alert from '@/components/Alert';
@@ -8,13 +9,14 @@ import { generateThicknessMap, detectCloudFlocs, calculateOverallDeviation, chec
 import { simulatePressDrying, calculateTensileStrength, simulateGrainPattern, estimateProductionTime } from '@/utils/simulation';
 import { checkTearingRisk, checkShrinkageRisk } from '@/utils/validation';
 import { generateBatchNo } from '@/utils/storage';
-import type { ThicknessPoint, CloudFloc, RiskAlert, SheetRecord } from '@/types';
+import type { ThicknessPoint, CloudFloc, RiskAlert, SheetRecord, PulpMixture } from '@/types';
 
 const GRID_SIZE = 5;
 
 export default function Thickness() {
-  const { mixtures, currentMixture, addSheetRecord, materials } = useAppStore();
-  
+  const { mixtures, currentMixture, materials, addSheetRecord, addMixture, setCurrentMixture, formulas } = useAppStore();
+  const navigate = useNavigate();
+
   const [selectedMixture, setSelectedMixture] = useState('');
   const [thicknessMap, setThicknessMap] = useState<ThicknessPoint[]>([]);
   const [cloudFlocs, setCloudFlocs] = useState<CloudFloc[]>([]);
@@ -24,6 +26,7 @@ export default function Thickness() {
   const [notes, setNotes] = useState('');
   const [batchNo, setBatchNo] = useState('');
   const [showSimulation, setShowSimulation] = useState(false);
+  const [savedBatchNo, setSavedBatchNo] = useState<string | null>(null);
 
   useEffect(() => {
     setBatchNo(generateBatchNo());
@@ -88,25 +91,55 @@ export default function Thickness() {
     return Number((activeMixture.targetGrammage * (avgActualThickness / activeMixture.targetThickness)).toFixed(1));
   }, [activeMixture, avgActualThickness]);
 
+  const evenness = useMemo(() => Math.max(0, 100 - overallDeviation * 2), [overallDeviation]);
+
   const handleDetect = () => {
     if (!activeMixture) return;
-    
+
     const map = generateThicknessMap(activeMixture.targetThickness, GRID_SIZE);
     setThicknessMap(map);
-    
+
     const flocs = detectCloudFlocs(map, GRID_SIZE);
     setCloudFlocs(flocs);
-    
+
     const thicknessAlerts = checkThicknessAlerts(map);
     const flocAlerts = checkFlocculationAlerts(flocs);
     const tearingAlert = checkTearingRisk(activeMixture.paperChemicalDosage, avgBeatingDegree, dryingTemp);
     const shrinkageAlert = checkShrinkageRisk(avgBeatingDegree, dryingTemp, pressPressure);
-    
-    const allAlerts = [...thicknessAlerts, ...flocAlerts];
-    if (tearingAlert) allAlerts.push(tearingAlert);
-    if (shrinkageAlert) allAlerts.push(shrinkageAlert);
-    
-    setAlerts(allAlerts);
+
+    const extraAlerts: RiskAlert[] = [];
+    if (evenness < 70 && overallDeviation > 3) {
+      extraAlerts.push({
+        id: `evn-${Date.now()}`,
+        type: 'low_evenness',
+        level: overallDeviation > 7 ? 'danger' : 'warning',
+        message: `匀度偏低（${evenness}分）`,
+        suggestion: '增加荡料次数或提升纸药用量，改善纤维分散',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (tensileStrength < 70 && tensileStrength > 0) {
+      extraAlerts.push({
+        id: `str-${Date.now()}`,
+        type: 'low_strength',
+        level: tensileStrength < 50 ? 'danger' : 'warning',
+        message: `抗张强度偏低（${tensileStrength}）`,
+        suggestion: '提升打浆度5-10°SR、或适当增加青檀/桑皮皮料比例',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (overallDeviation > 6) {
+      extraAlerts.push({
+        id: `dev-${Date.now()}`,
+        type: 'high_deviation',
+        level: overallDeviation > 10 ? 'danger' : 'warning',
+        message: `厚度偏差偏大（${overallDeviation.toFixed(2)}%）`,
+        suggestion: '调整荡料节奏，保证帘床入料均匀，纸药略增',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    setAlerts([...thicknessAlerts, ...flocAlerts, tearingAlert, shrinkageAlert, ...extraAlerts].filter(Boolean) as RiskAlert[]);
     setShowSimulation(true);
   };
 
@@ -115,12 +148,128 @@ export default function Thickness() {
     setCloudFlocs([]);
     setAlerts([]);
     setShowSimulation(false);
+    setSavedBatchNo(null);
     setBatchNo(generateBatchNo());
+  };
+
+  const buildAdjustmentPlan = () => {
+    if (!activeMixture) return null;
+
+    const suggestions: string[] = [];
+    const params = {
+      chemicalDosage: activeMixture.paperChemicalDosage,
+      swingTimes: activeMixture.swingTimes,
+      targetThickness: activeMixture.targetThickness,
+      targetGrammage: activeMixture.targetGrammage,
+      dryingTemp: dryingTemp,
+      pressPressure: pressPressure,
+      beatingAdjust: 0,
+    };
+
+    alerts.forEach(a => {
+      switch (a.type) {
+        case 'uneven_thickness':
+          params.swingTimes = Math.min(12, params.swingTimes + 1);
+          params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.15).toFixed(2));
+          suggestions.push('厚薄不均 → 荡料+1次，纸药+0.15%');
+          break;
+        case 'flocculation':
+          params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.25).toFixed(2));
+          params.swingTimes = Math.min(12, params.swingTimes + 1);
+          suggestions.push('纤维絮聚 → 纸药+0.25%，荡料+1次');
+          break;
+        case 'tearing':
+          params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.15).toFixed(2));
+          params.dryingTemp = Math.max(25, params.dryingTemp - 5);
+          suggestions.push('揭纸破损 → 纸药+0.15%，晒纸降温5°C');
+          break;
+        case 'excessive_shrinkage':
+          params.pressPressure = Math.max(5, params.pressPressure - 4);
+          params.dryingTemp = Math.max(25, params.dryingTemp - 8);
+          params.targetThickness = Math.round(params.targetThickness * 1.04);
+          params.targetGrammage = Math.round(params.targetGrammage * 1.02);
+          suggestions.push('收缩过大 → 压榨降4kg、晒纸降8°C，目标厚度+4%、克重+2%');
+          break;
+        case 'high_deviation':
+          params.swingTimes = Math.min(12, params.swingTimes + 1);
+          params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.1).toFixed(2));
+          suggestions.push('偏差过大 → 荡料+1次，纸药+0.1%');
+          break;
+        case 'low_strength':
+          params.beatingAdjust = Math.min(15, params.beatingAdjust + 8);
+          params.pressPressure = Math.min(50, params.pressPressure + 3);
+          suggestions.push('强度偏弱 → 打浆度+8°SR，压榨压力+3kg');
+          break;
+        case 'low_evenness':
+          params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.12).toFixed(2));
+          params.swingTimes = Math.min(12, params.swingTimes + 1);
+          suggestions.push('匀度偏低 → 纸药+0.12%，荡料+1次');
+          break;
+      }
+    });
+
+    if (suggestions.length === 0) return null;
+
+    const adjustNotes = `来自批次 ${batchNo} 检测改进（${alerts.filter(a => a.level === 'danger').length}风险${alerts.filter(a => a.level === 'warning').length}预警）：${suggestions.join('；')}`;
+
+    const improvedFiberComponents = activeMixture.fiberComponents.map(fc => ({
+      ...fc,
+      beatingDegree: Math.min(95, fc.beatingDegree + params.beatingAdjust),
+    }));
+
+    const improvedMixture: Omit<PulpMixture, 'id' | 'createdAt'> = {
+      name: `${activeMixture.name}·调整草案`,
+      fiberComponents: improvedFiberComponents,
+      paperChemicalId: activeMixture.paperChemicalId,
+      paperChemicalDosage: params.chemicalDosage,
+      targetGrammage: params.targetGrammage,
+      targetThickness: params.targetThickness,
+      targetWidth: activeMixture.targetWidth,
+      targetHeight: activeMixture.targetHeight,
+      pulpConcentration: activeMixture.pulpConcentration,
+      absoluteDryPulp: activeMixture.absoluteDryPulp,
+      swingTimes: params.swingTimes,
+      sourceFormulaId: activeMixture.sourceFormulaId,
+      adjustmentFromBatch: batchNo,
+      adjustmentNotes: adjustNotes,
+    };
+
+    return {
+      improvedMixture,
+      adjustNotes,
+      summarySuggestions: suggestions,
+      adjustedDryingTemp: params.dryingTemp,
+      adjustedPressPressure: params.pressPressure,
+    };
+  };
+
+  const handleGoToMixtureTrial = () => {
+    if (!activeMixture) return;
+    const plan = buildAdjustmentPlan();
+    if (!plan) return;
+
+    const { improvedMixture } = plan;
+    addMixture(improvedMixture);
+
+    setTimeout(() => {
+      const latest = useAppStore.getState().mixtures;
+      if (latest.length > 0) {
+        setCurrentMixture(latest[latest.length - 1]);
+      }
+      navigate('/mixture');
+    }, 30);
   };
 
   const handleSave = () => {
     if (!activeMixture || thicknessMap.length === 0) return;
-    
+
+    const parentBatchNo = activeMixture.adjustmentFromBatch;
+    let improvementChain: string[] = [];
+    if (parentBatchNo) {
+      const parentRecord = useAppStore.getState().sheetRecords.find(r => r.batchNo === parentBatchNo);
+      improvementChain = [...(parentRecord?.improvementChain || []), parentBatchNo];
+    }
+
     const reportLines = [
       `批次 ${batchNo} 检测报告`,
       `配比方案：${activeMixture.name}`,
@@ -130,15 +279,16 @@ export default function Thickness() {
       `目标厚度：${activeMixture.targetThickness}μm / 实际：${avgActualThickness}μm`,
       `厚度偏差率：${overallDeviation}%`,
       `抗张强度：${tensileStrength}`,
-      `匀度：${Math.max(0, 100 - overallDeviation * 2)}`,
+      `匀度：${evenness}`,
       `云絮：${cloudFlocs.length > 0 ? cloudFlocs.length + '处（' + cloudFlocs.map(f => f.severity === 'severe' ? '严重' : f.severity === 'moderate' ? '中等' : '轻微').join('、') + '）' : '无'}`,
       `帘纹：${grainPattern ? grainPattern.patternType + '（' + grainPattern.description + '，质量' + grainPattern.quality + '分）' : '-'}`,
       `压榨${pressPressure}kg / 晒纸${dryingTemp}°C`,
       `收缩率：${simulationResult?.shrinkageRate ?? '-'}% / 平整度：${simulationResult?.smoothness ?? '-'}分`,
+      ...(parentBatchNo ? [`改进链：${[...improvementChain, parentBatchNo].join(' → ')} → 本次`] : []),
       ...(simulationResult?.riskOfCracking ? ['⚠ 存在开裂风险'] : []),
       ...(alerts.length > 0 ? alerts.map(a => `[${a.level === 'danger' ? '风险' : a.level === 'warning' ? '预警' : '提示'}] ${a.message}`) : []),
     ];
-    
+
     const record: Omit<SheetRecord, 'id' | 'createdAt'> = {
       mixtureId: activeMixture.id,
       batchNo,
@@ -153,15 +303,19 @@ export default function Thickness() {
       shrinkageRate: simulationResult?.shrinkageRate || 0,
       smoothness: simulationResult?.smoothness || 0,
       tensileStrength,
-      evenness: Math.max(0, 100 - overallDeviation * 2),
+      evenness,
       riskAlerts: alerts,
       notes,
       reportSummary: reportLines.join('\n'),
+      parentBatchNo: parentBatchNo || undefined,
+      improvementChain,
     };
-    
+
     addSheetRecord(record);
-    handleReset();
+    setSavedBatchNo(batchNo);
   };
+
+  const plan = thicknessMap.length > 0 && alerts.length > 0 ? buildAdjustmentPlan() : null;
 
   const getThicknessColor = (point: ThicknessPoint) => {
     if (point.isWarning) return 'bg-vermilion/80 text-white';
@@ -187,12 +341,12 @@ export default function Thickness() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-bold font-serif-cn text-ink-black">抄纸厚薄</h2>
           <p className="text-ash-gray mt-1">检测厚薄偏差、识别云絮瑕疵、模拟压榨晒纸</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <button className="btn-outline flex items-center gap-2" onClick={handleReset}>
             <RefreshCw size={18} />
             重置
@@ -207,6 +361,64 @@ export default function Thickness() {
           </button>
         </div>
       </div>
+
+      {activeMixture?.adjustmentFromBatch && (
+        <Card className="!p-3 border-l-4 !border-l-ochre-red">
+          <div className="flex items-start gap-3">
+            <GitBranch size={20} className="text-ochre-red shrink-0 mt-0.5" />
+            <div className="text-sm flex-1">
+              <div className="font-bold text-ochre-red mb-1">
+                改进链续接：本次配比由批次「{activeMixture.adjustmentFromBatch}」的预警优化而来
+              </div>
+              {activeMixture.adjustmentNotes && (
+                <div className="text-ash-gray whitespace-pre-line">{activeMixture.adjustmentNotes}</div>
+              )}
+              <div className="mt-2 text-xs text-bamboo-green">
+                💡 继续保存后，将自动串入批次改进链，便于复盘调参效果
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {savedBatchNo && (
+        <Card className="!p-3 border-l-4 !border-l-bamboo-green">
+          <div className="flex items-start gap-3">
+            <Save size={20} className="text-bamboo-green shrink-0 mt-0.5" />
+            <div className="text-sm flex-1">
+              <div className="font-bold text-bamboo-green mb-1">
+                批次 {savedBatchNo} 已存入工艺档案
+              </div>
+              <div className="flex gap-3 mt-2 flex-wrap">
+                <button
+                  className="btn-outline text-xs py-1.5 flex items-center gap-1"
+                  onClick={() => navigate('/archives')}
+                >
+                  → 去工艺档案查看
+                </button>
+                {plan && (
+                  <button
+                    className="btn-secondary text-xs py-1.5 flex items-center gap-1"
+                    onClick={handleGoToMixtureTrial}
+                  >
+                    <Lightbulb size={14} />
+                    根据本次预警生成调整草案→试算台
+                  </button>
+                )}
+                <button
+                  className="btn-outline text-xs py-1.5 flex items-center gap-1"
+                  onClick={() => {
+                    setSavedBatchNo(null);
+                    handleReset();
+                  }}
+                >
+                  继续下一批
+                </button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -224,7 +436,7 @@ export default function Thickness() {
                   onChange={(e) => setSelectedMixture(e.target.value)}
                 >
                   {mixtures.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
+                    <option key={m.id} value={m.id}>{m.name}{m.adjustmentFromBatch ? ` (来自${m.adjustmentFromBatch})` : ''}</option>
                   ))}
                 </select>
               </div>
@@ -333,7 +545,7 @@ export default function Thickness() {
                 )}
               </div>
 
-              <div className="mt-4 flex items-center justify-center gap-6 text-sm">
+              <div className="mt-4 flex items-center justify-center gap-6 text-sm flex-wrap">
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 rounded bg-bamboo-green/80"></div>
                   <span>正常 (≤5%)</span>
@@ -355,7 +567,17 @@ export default function Thickness() {
           )}
 
           {alerts.length > 0 && (
-            <Card title="风险预警">
+            <Card
+              title="风险预警"
+              subtitle={
+                plan ? (
+                  <span className="text-ochre-red flex items-center gap-1">
+                    <Lightbulb size={14} />
+                    系统已生成调参建议，可一键带回试算台
+                  </span>
+                ) : undefined
+              }
+            >
               <div className="space-y-3">
                 {alerts.map((alert) => (
                   <Alert
@@ -366,6 +588,57 @@ export default function Thickness() {
                   />
                 ))}
               </div>
+              {plan && (
+                <div className="mt-6 pt-5 border-t border-gilt-gold/20">
+                  <div className="flex items-start gap-3 mb-4">
+                    <Lightbulb size={20} className="text-gilt-gold shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="font-bold text-ink-black mb-2">📋 调整草案预览</div>
+                      <div className="text-sm text-ash-gray space-y-1">
+                        {plan.summarySuggestions.map((s, i) => (
+                          <div key={i}>• {s}</div>
+                        ))}
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div className="p-2 bg-xuan-paper/50 rounded">
+                          <div className="text-ash-gray">纸药</div>
+                          <div className="font-bold text-ochre-red">{activeMixture!.paperChemicalDosage}% → {plan.improvedMixture.paperChemicalDosage}%</div>
+                        </div>
+                        <div className="p-2 bg-xuan-paper/50 rounded">
+                          <div className="text-ash-gray">荡料</div>
+                          <div className="font-bold text-ochre-red">{activeMixture!.swingTimes} → {plan.improvedMixture.swingTimes} 次</div>
+                        </div>
+                        <div className="p-2 bg-xuan-paper/50 rounded">
+                          <div className="text-ash-gray">压榨</div>
+                          <div className="font-bold text-ochre-red">{pressPressure} → {plan.adjustedPressPressure} kg</div>
+                        </div>
+                        <div className="p-2 bg-xuan-paper/50 rounded">
+                          <div className="text-ash-gray">晒纸</div>
+                          <div className="font-bold text-ochre-red">{dryingTemp} → {plan.adjustedDryingTemp}°C</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 flex-wrap">
+                    <button
+                      className="btn-primary flex items-center gap-2"
+                      onClick={handleGoToMixtureTrial}
+                    >
+                      <ArrowLeft size={18} />
+                      生成草案 → 回试算台
+                    </button>
+                    <button
+                      className="btn-outline flex items-center gap-2"
+                      onClick={() => {
+                        setDryingTemp(plan.adjustedDryingTemp);
+                        setPressPressure(plan.adjustedPressPressure);
+                      }}
+                    >
+                      仅套用压榨/晒纸参数于本页
+                    </button>
+                  </div>
+                </div>
+              )}
             </Card>
           )}
 
@@ -383,7 +656,16 @@ export default function Thickness() {
 
         <div className="space-y-6">
           {activeMixture && (
-            <Card title="当前配比参数">
+            <Card
+              title="当前配比参数"
+              subtitle={
+                activeMixture.sourceFormulaId ? (
+                  <span className="text-ochre-red text-xs">
+                    来源配方：{formulas.find(f => f.id === activeMixture.sourceFormulaId)?.name || '配方库'}
+                  </span>
+                ) : undefined
+              }
+            >
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-ash-gray">纸浆浓度</span>
@@ -404,6 +686,10 @@ export default function Thickness() {
                 <div className="flex justify-between">
                   <span className="text-ash-gray">平均打浆度</span>
                   <span className="font-bold">{avgBeatingDegree.toFixed(1)}°SR</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ash-gray">目标克重</span>
+                  <span className="font-bold">{activeMixture.targetGrammage}g/m²</span>
                 </div>
               </div>
             </Card>
@@ -441,6 +727,12 @@ export default function Thickness() {
                     <span className="text-ash-gray">抗张强度</span>
                     <span className="value-display text-ochre-red">
                       <NumberRoll value={tensileStrength} />
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-xuan-paper/50 rounded-lg">
+                    <span className="text-ash-gray">匀度</span>
+                    <span className={`value-display ${evenness < 70 ? 'deviation-warning' : evenness < 80 ? 'text-amber-500' : 'text-bamboo-green'}`}>
+                      <NumberRoll value={evenness} suffix="分" />
                     </span>
                   </div>
                 </div>

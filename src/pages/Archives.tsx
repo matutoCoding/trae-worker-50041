@@ -1,15 +1,19 @@
 import { useState, useMemo } from 'react';
-import { Search, Calendar, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Calendar, FileText, ChevronDown, ChevronUp, GitCompare, Check, X, Gauge, Thermometer, AlertTriangle } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
 import Alert from '@/components/Alert';
 import type { SheetRecord } from '@/types';
 
 export default function Archives() {
-  const { sheetRecords, mixtures } = useAppStore();
+  const { sheetRecords, mixtures, setCurrentMixture, addMixture } = useAppStore();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
 
   const filteredRecords = useMemo(() => {
     return sheetRecords
@@ -28,6 +32,12 @@ export default function Archives() {
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [sheetRecords, searchQuery, selectedType]);
+
+  const compareRecords = useMemo(() => {
+    return compareIds
+      .map(id => sheetRecords.find(r => r.id === id))
+      .filter((r): r is SheetRecord => !!r);
+  }, [compareIds, sheetRecords]);
 
   const getMixtureName = (mixtureId: string) => {
     const mixture = mixtures.find(m => m.id === mixtureId);
@@ -67,11 +77,57 @@ export default function Archives() {
     setExpandedId(expandedId === id ? null : id);
   };
 
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(i => i !== id);
+      if (prev.length >= 3) return prev;
+      return [...prev, id];
+    });
+  };
+
+  const clearCompare = () => {
+    setCompareIds([]);
+    setShowCompare(false);
+  };
+
+  const bestRecordId = useMemo(() => {
+    if (compareRecords.length === 0) return null;
+    return compareRecords.slice().sort((a, b) => {
+      const scoreA = a.thicknessDeviation * 3 + a.cloudFlocPositions.length * 5 + a.riskAlerts.filter(r => r.level === 'danger').length * 20;
+      const scoreB = b.thicknessDeviation * 3 + b.cloudFlocPositions.length * 5 + b.riskAlerts.filter(r => r.level === 'danger').length * 20;
+      return scoreA - scoreB;
+    })[0]?.id;
+  }, [compareRecords]);
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold font-serif-cn text-ink-black">工艺档案</h2>
-        <p className="text-ash-gray mt-1">记录每批纸的配比与抄造，建立工艺档案</p>
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-2xl font-bold font-serif-cn text-ink-black">工艺档案</h2>
+          <p className="text-ash-gray mt-1">记录每批纸的配比与抄造，建立工艺档案</p>
+        </div>
+        {compareIds.length > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-ash-gray">
+              已选 {compareIds.length}/3 批次
+            </span>
+            <button
+              className={`btn-outline flex items-center gap-2 ${showCompare ? 'bg-ochre-red/10 text-ochre-red' : ''}`}
+              onClick={() => setShowCompare(!showCompare)}
+              disabled={compareIds.length < 2}
+            >
+              <GitCompare size={18} />
+              批次复盘对比
+            </button>
+            <button
+              className="btn-outline flex items-center gap-2 text-xs"
+              onClick={clearCompare}
+            >
+              <X size={16} />
+              清空
+            </button>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -86,13 +142,13 @@ export default function Archives() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             <select
               className="input-field w-40"
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
             >
-              <option value="all">全部记录</option>
+              <option value="all">全部记录 ({sheetRecords.length})</option>
               <option value="normal">正常</option>
               <option value="warning">有预警</option>
               <option value="danger">有风险</option>
@@ -101,11 +157,179 @@ export default function Archives() {
         </div>
       </Card>
 
+      {showCompare && compareRecords.length >= 2 && (
+        <Card title="📊 批次复盘对比" subtitle={`对比 ${compareRecords.length} 个批次的核心指标`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b-2 border-gilt-gold/30">
+                  <th className="text-left py-3 px-2 text-ash-gray font-medium w-36">指标</th>
+                  {compareRecords.map(r => {
+                    const isBest = r.id === bestRecordId;
+                    return (
+                      <th key={r.id} className={`text-center py-3 px-2 font-serif-cn ${isBest ? 'text-bamboo-green' : 'text-ink-black'}`}>
+                        <div className="flex items-center justify-center gap-2">
+                          {isBest && <span>🏆</span>}
+                          <span>批次 {r.batchNo}</span>
+                        </div>
+                        <div className="text-xs font-normal text-ash-gray mt-0.5">
+                          {getMixtureName(r.mixtureId)}
+                        </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-gilt-gold/15">
+                  <td className="py-3 px-2 text-ash-gray">抄造时间</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-mono">{formatDate(r.createdAt)}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15 bg-xuan-paper/30">
+                  <td className="py-3 px-2 text-ash-gray">厚度偏差率 ↓</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className={`py-3 px-2 text-center font-bold ${r.id === bestRecordId ? 'text-bamboo-green' : getDeviationColor(r.thicknessDeviation)}`}>
+                      {r.thicknessDeviation.toFixed(2)}%
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15">
+                  <td className="py-3 px-2 text-ash-gray">实际克重 (g/m²)</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.actualGrammage}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15 bg-xuan-paper/30">
+                  <td className="py-3 px-2 text-ash-gray">实际厚度 (μm)</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.actualThickness}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15">
+                  <td className="py-3 px-2 text-ash-gray">云絮数量 ↓</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className={`py-3 px-2 text-center font-bold ${r.cloudFlocPositions.length === 0 ? 'text-bamboo-green' : r.cloudFlocPositions.length > 2 ? 'text-vermilion' : 'text-ochre-red'}`}>
+                      {r.cloudFlocPositions.length}
+                      {r.cloudFlocPositions.length > 0 && (
+                        <span className="ml-1 text-xs opacity-70">
+                          ({r.cloudFlocPositions.map(f => f.severity === 'severe' ? '严重' : f.severity === 'moderate' ? '中' : '轻').join('、')})
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15 bg-xuan-paper/30">
+                  <td className="py-3 px-2 text-ash-gray flex items-center gap-1"><Gauge size={14} />压榨压力 (kg)</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.pressPressure}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15">
+                  <td className="py-3 px-2 text-ash-gray flex items-center gap-1"><Thermometer size={14} />晒纸温度 (°C)</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.dryingTemp}°</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15 bg-xuan-paper/30">
+                  <td className="py-3 px-2 text-ash-gray">收缩率 ↓</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.shrinkageRate.toFixed(1)}%</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15">
+                  <td className="py-3 px-2 text-ash-gray">平整度 ↑</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.smoothness}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15 bg-xuan-paper/30">
+                  <td className="py-3 px-2 text-ash-gray">抗张强度 ↑</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.tensileStrength}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-gilt-gold/15">
+                  <td className="py-3 px-2 text-ash-gray">匀度 ↑</td>
+                  {compareRecords.map(r => (
+                    <td key={r.id} className="py-3 px-2 text-center font-bold">{r.evenness}</td>
+                  ))}
+                </tr>
+                <tr className="bg-xuan-paper/30">
+                  <td className="py-3 px-2 text-ash-gray flex items-center gap-1"><AlertTriangle size={14} />风险预警 ↓</td>
+                  {compareRecords.map(r => {
+                    const d = r.riskAlerts.filter(a => a.level === 'danger').length;
+                    const w = r.riskAlerts.filter(a => a.level === 'warning').length;
+                    return (
+                      <td key={r.id} className="py-3 px-2 text-center font-bold">
+                        {d === 0 && w === 0 && <span className="text-bamboo-green">无</span>}
+                        {d > 0 && <span className="text-vermilion">{d} 风险</span>}
+                        {d === 0 && w > 0 && <span className="text-amber-500">{w} 预警</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gilt-gold/20">
+            <h5 className="font-bold text-ink-black mb-4">云絮点位对比</h5>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {compareRecords.map(r => (
+                <div key={r.id} className="p-3 bg-xuan-paper/50 rounded-lg">
+                  <div className="text-sm font-bold mb-2">批次 {r.batchNo}</div>
+                  {r.cloudFlocPositions.length === 0 ? (
+                    <div className="text-sm text-bamboo-green">✓ 无云絮</div>
+                  ) : (
+                    <div className="space-y-1 text-xs">
+                      {r.cloudFlocPositions.map((f, i) => (
+                        <div key={i} className="flex items-center justify-between">
+                          <span className="text-ash-gray">点位{i + 1}: ({f.x}, {f.y})</span>
+                          <span className={`font-bold ${
+                            f.severity === 'severe' ? 'text-vermilion' : f.severity === 'moderate' ? 'text-ochre-red' : 'text-gilt-gold'
+                          }`}>
+                            {f.severity === 'severe' ? '严重' : f.severity === 'moderate' ? '中等' : '轻微'} {f.size}px
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gilt-gold/20">
+            <h5 className="font-bold text-ink-black mb-4">报告摘要对比</h5>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {compareRecords.map(r => (
+                <div key={r.id} className="p-4 bg-xuan-paper/30 rounded-lg border border-gilt-gold/20">
+                  <div className="text-sm font-bold mb-2 flex items-center gap-2">
+                    批次 {r.batchNo} 检测报告
+                    {r.id === bestRecordId && <span className="text-bamboo-green text-xs">🏆 最优</span>}
+                  </div>
+                  <div className="text-xs text-ink-black whitespace-pre-line font-mono leading-relaxed max-h-60 overflow-y-auto">
+                    {r.reportSummary || '暂无报告摘要'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+
       <div className="flex items-center gap-6 text-sm text-ash-gray">
         <div className="flex items-center gap-2">
           <Calendar size={16} />
           <span>共 {filteredRecords.length} 条记录</span>
         </div>
+        {compareIds.length > 0 && !showCompare && (
+          <div className="text-xs text-ochre-red">
+            💡 已选 {compareIds.length} 条，至少选2条开启对比
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -121,15 +345,18 @@ export default function Archives() {
           filteredRecords.map((record) => {
             const alerts = getAlertSummary(record);
             const isExpanded = expandedId === record.id;
-            
+            const isInCompare = compareIds.includes(record.id);
+
             return (
               <Card key={record.id}>
                 <div
-                  className="flex items-start justify-between cursor-pointer"
-                  onClick={() => toggleExpand(record.id)}
+                  className="flex items-start justify-between gap-3"
                 >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-4 mb-2">
+                  <div
+                    className="flex-1 cursor-pointer"
+                    onClick={() => toggleExpand(record.id)}
+                  >
+                    <div className="flex items-center gap-4 mb-2 flex-wrap">
                       <h4 className="font-bold font-serif-cn text-lg text-ink-black">
                         批次 {record.batchNo}
                       </h4>
@@ -190,7 +417,19 @@ export default function Archives() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      className={`w-8 h-8 rounded flex items-center justify-center transition ${
+                        isInCompare
+                          ? 'bg-ochre-red/80 text-white hover:bg-ochre-red'
+                          : 'bg-gilt-gold/15 text-ash-gray hover:bg-gilt-gold/25'
+                      }`}
+                      title={isInCompare ? '从对比中移除' : '加入对比'}
+                      onClick={(e) => { e.stopPropagation(); toggleCompare(record.id); }}
+                      disabled={!isInCompare && compareIds.length >= 3}
+                    >
+                      {isInCompare ? <Check size={16} /> : <GitCompare size={16} />}
+                    </button>
                     {isExpanded ? (
                       <ChevronUp size={20} className="text-ash-gray" />
                     ) : (
@@ -277,6 +516,68 @@ export default function Archives() {
                         </div>
                       ))}
                     </div>
+
+                    {record.riskAlerts.length > 0 && (
+                      <div className="pt-4 border-t border-gilt-gold/20">
+                        <div className="text-xs text-ochre-red mb-2">
+                          💡 根据本次预警生成一份调整草案，去配方试算台改进参数
+                        </div>
+                        <button
+                          className="btn-secondary flex items-center gap-2"
+                          onClick={() => {
+                            const mix = mixtures.find(m => m.id === record.mixtureId);
+                            if (!mix) return;
+                            const suggestions: string[] = [];
+                            let adjustedChemical = mix.paperChemicalDosage;
+                            let adjustedGrammage = mix.targetGrammage;
+                            let adjustedThickness = mix.targetThickness;
+                            record.riskAlerts.forEach(a => {
+                              if (a.type === 'uneven_thickness') {
+                                adjustedChemical = Math.min(2, adjustedChemical + 0.2);
+                                suggestions.push('厚薄不均 → 增加纸药0.2%');
+                              }
+                              if (a.type === 'flocculation') {
+                                adjustedChemical = Math.min(2.5, adjustedChemical + 0.3);
+                                suggestions.push('纤维絮聚 → 增加纸药0.3%');
+                              }
+                              if (a.type === 'tearing') {
+                                adjustedChemical = Math.min(2, adjustedChemical + 0.15);
+                                suggestions.push('揭纸破损 → 增加纸药0.15%');
+                              }
+                              if (a.type === 'excessive_shrinkage') {
+                                adjustedThickness = Math.round(adjustedThickness * 1.05);
+                                adjustedGrammage = Math.round(adjustedGrammage * 1.03);
+                                suggestions.push('收缩过大 → 增大目标厚度5%、克重3%');
+                              }
+                            });
+                            const adjustNotes = `来自批次 ${record.batchNo} 改进：${suggestions.join('；')}`;
+                            addMixture({
+                              name: `${mix.name}·改进版`,
+                              fiberComponents: mix.fiberComponents,
+                              paperChemicalId: mix.paperChemicalId,
+                              paperChemicalDosage: adjustedChemical,
+                              targetGrammage: adjustedGrammage,
+                              targetThickness: adjustedThickness,
+                              targetWidth: mix.targetWidth,
+                              targetHeight: mix.targetHeight,
+                              pulpConcentration: mix.pulpConcentration,
+                              absoluteDryPulp: mix.absoluteDryPulp,
+                              swingTimes: mix.swingTimes,
+                              sourceFormulaId: mix.sourceFormulaId,
+                              adjustmentFromBatch: record.batchNo,
+                              adjustmentNotes: adjustNotes,
+                            } as any);
+                            const latest = useAppStore.getState().mixtures;
+                            if (latest.length > 0) {
+                              setCurrentMixture(latest[latest.length - 1]);
+                            }
+                            navigate('/mixture');
+                          }}
+                        >
+                          → 带回配方试算台，生成调整草案
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>

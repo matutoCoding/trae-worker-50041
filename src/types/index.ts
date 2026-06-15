@@ -1,7 +1,7 @@
 export type FiberType = 'bark' | 'straw' | 'cotton' | 'bamboo' | 'hemp' | 'other';
 export type PaperChemicalType = 'mucilage' | 'fixative' | 'softener' | 'other';
 export type AlertLevel = 'info' | 'warning' | 'danger' | 'success';
-export type AlertType = 'flocculation' | 'uneven_thickness' | 'tearing' | 'excessive_shrinkage';
+export type AlertType = 'flocculation' | 'uneven_thickness' | 'tearing' | 'excessive_shrinkage' | 'low_strength' | 'low_evenness' | 'high_deviation';
 export type CloudFlocSeverity = 'mild' | 'moderate' | 'severe';
 
 export interface FiberMaterial {
@@ -53,6 +53,9 @@ export interface PulpMixture {
   pulpConcentration: number;
   absoluteDryPulp: number;
   swingTimes: number;
+  sourceFormulaId?: string;
+  adjustmentFromBatch?: string;
+  adjustmentNotes?: string;
   createdAt: string;
 }
 
@@ -99,6 +102,8 @@ export interface SheetRecord {
   riskAlerts: RiskAlert[];
   notes: string;
   reportSummary: string;
+  parentBatchNo?: string;
+  improvementChain?: string[];
   createdAt: string;
 }
 

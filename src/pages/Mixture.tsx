@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calculator, ArrowLeftRight, Save, Copy, RotateCcw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Calculator, ArrowLeftRight, Save, Copy, RotateCcw, BookOpen, Package, Ruler as RulerIcon } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
@@ -7,7 +8,7 @@ import Alert from '@/components/Alert';
 import NumberRoll from '@/components/NumberRoll';
 import { calculateMixture, reverseCalculateMixture } from '@/utils/calculations';
 import { validateFiberPercentage, validatePaperChemical } from '@/utils/validation';
-import type { FiberComponent, CalculationResult } from '@/types';
+import type { FiberComponent, CalculationResult, PulpMixture } from '@/types';
 
 const COLORS = ['#A85537', '#6B8E6B', '#C9A961', '#8B8680', '#2C2416'];
 
@@ -23,8 +24,19 @@ type FormulaSnapshot = {
 };
 
 export default function Mixture() {
-  const { materials, paperChemicals, addMixture, updateMixture, currentMixture, setCurrentMixture } = useAppStore();
-  
+  const {
+    materials,
+    paperChemicals,
+    formulas,
+    addMixture,
+    updateMixture,
+    currentMixture,
+    setCurrentMixture,
+    updateFormula,
+    createFormulaFromMixture,
+  } = useAppStore();
+  const navigate = useNavigate();
+
   const [mixtureName, setMixtureName] = useState('');
   const [fiberComponents, setFiberComponents] = useState<FiberComponent[]>([]);
   const [selectedChemical, setSelectedChemical] = useState('');
@@ -38,6 +50,9 @@ export default function Mixture() {
   const [targetEvenness, setTargetEvenness] = useState(80);
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [originalFormula, setOriginalFormula] = useState<FormulaSnapshot | null>(null);
+  const [sourceFormulaId, setSourceFormulaId] = useState<string | undefined>(undefined);
+  const [adjustmentNotes, setAdjustmentNotes] = useState<string | undefined>(undefined);
+  const [adjustmentFromBatch, setAdjustmentFromBatch] = useState<string | undefined>(undefined);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [alertState, setAlertState] = useState<{ show: boolean; level: 'info' | 'success' | 'warning' | 'danger'; message: string; suggestion?: string } | null>(null);
 
@@ -66,6 +81,9 @@ export default function Mixture() {
     setTargetThickness(currentMixture.targetThickness);
     setTargetWidth(currentMixture.targetWidth);
     setTargetHeight(currentMixture.targetHeight);
+    setSourceFormulaId(currentMixture.sourceFormulaId);
+    setAdjustmentNotes(currentMixture.adjustmentNotes);
+    setAdjustmentFromBatch(currentMixture.adjustmentFromBatch);
     setOriginalFormula({
       name: currentMixture.name,
       fiberComponents: currentMixture.fiberComponents.map(fc => ({ ...fc })),
@@ -95,6 +113,16 @@ export default function Mixture() {
     const result = doCalculate(fiberComponents, targetGrammage, targetThickness, targetWidth, targetHeight, chemicalDosage);
     setCalculationResult(result);
   }, [fiberComponents, targetGrammage, targetThickness, targetWidth, targetHeight, chemicalDosage, doCalculate]);
+
+  const sourceFormulaName = sourceFormulaId
+    ? formulas.find(f => f.id === sourceFormulaId)?.name
+    : null;
+
+  const sourceLabel = sourceFormulaName
+    ? `📚 来源配方库：${sourceFormulaName}`
+    : currentMixture
+    ? `📋 来源配比方案：${currentMixture.name}`
+    : null;
 
   const addFiberComponent = () => {
     if (materials.length > fiberComponents.length) {
@@ -149,13 +177,11 @@ export default function Mixture() {
   const handleReverseCalculate = () => {
     const availableMaterials = materials.map(m => ({ fiberLength: m.fiberLength }));
     const result = reverseCalculateMixture(targetStrength, targetEvenness, availableMaterials);
-    
     setFiberComponents(prev => prev.map((fc, i) => ({
       ...fc,
       beatingDegree: result.suggestedBeatingDegree + (i * 5),
     })));
     setChemicalDosage(result.suggestedDosage);
-    
     setAlertState({
       show: true,
       level: 'success',
@@ -170,53 +196,81 @@ export default function Mixture() {
     setShowSaveModal(true);
   };
 
+  const buildMixtureData = (): PulpMixture | null => {
+    if (!calculationResult) return null;
+    return {
+      id: currentMixture?.id || '',
+      name: mixtureName || (currentMixture?.name ?? ''),
+      fiberComponents,
+      paperChemicalId: selectedChemical,
+      paperChemicalDosage: chemicalDosage,
+      targetGrammage,
+      targetThickness,
+      targetWidth,
+      targetHeight,
+      pulpConcentration: calculationResult.pulpConcentration,
+      absoluteDryPulp: calculationResult.absoluteDryPulp,
+      swingTimes: calculationResult.swingTimes,
+      sourceFormulaId,
+      adjustmentFromBatch,
+      adjustmentNotes,
+      createdAt: currentMixture?.createdAt || new Date().toISOString(),
+    };
+  };
+
   const handleSaveOverwrite = () => {
-    if (!calculationResult) return;
-    if (currentMixture) {
-      updateMixture(currentMixture.id, {
-        name: mixtureName || currentMixture.name,
-        fiberComponents,
-        paperChemicalId: selectedChemical,
-        paperChemicalDosage: chemicalDosage,
-        targetGrammage,
-        targetThickness,
-        targetWidth,
-        targetHeight,
-        pulpConcentration: calculationResult.pulpConcentration,
-        absoluteDryPulp: calculationResult.absoluteDryPulp,
-        swingTimes: calculationResult.swingTimes,
-      });
-      setCurrentMixture({
-        ...currentMixture,
-        name: mixtureName || currentMixture.name,
-        fiberComponents,
-        paperChemicalId: selectedChemical,
-        paperChemicalDosage: chemicalDosage,
-        targetGrammage,
-        targetThickness,
-        targetWidth,
-        targetHeight,
-        pulpConcentration: calculationResult.pulpConcentration,
-        absoluteDryPulp: calculationResult.absoluteDryPulp,
-        swingTimes: calculationResult.swingTimes,
-      });
+    if (!currentMixture || !calculationResult) return;
+    const updated = updateMixture(currentMixture.id, {
+      name: mixtureName || currentMixture.name,
+      fiberComponents,
+      paperChemicalId: selectedChemical,
+      paperChemicalDosage: chemicalDosage,
+      targetGrammage,
+      targetThickness,
+      targetWidth,
+      targetHeight,
+      pulpConcentration: calculationResult.pulpConcentration,
+      absoluteDryPulp: calculationResult.absoluteDryPulp,
+      swingTimes: calculationResult.swingTimes,
+    });
+    if (updated) {
+      setCurrentMixture(updated);
+      if (sourceFormulaId) {
+        updateFormula(sourceFormulaId, {
+          mixtureParams: {
+            name: mixtureName || updated.name,
+            fiberComponents: updated.fiberComponents,
+            paperChemicalId: updated.paperChemicalId,
+            paperChemicalDosage: updated.paperChemicalDosage,
+            targetGrammage: updated.targetGrammage,
+            targetThickness: updated.targetThickness,
+            targetWidth: updated.targetWidth,
+            targetHeight: updated.targetHeight,
+            pulpConcentration: updated.pulpConcentration,
+            absoluteDryPulp: updated.absoluteDryPulp,
+            swingTimes: updated.swingTimes,
+          },
+        });
+        setAlertState({ show: true, level: 'success', message: '已同步更新配方库', suggestion: `配方「${sourceFormulaName}」参数已更新` });
+      } else {
+        setAlertState({ show: true, level: 'success', message: '方案已覆盖保存' });
+      }
       setOriginalFormula({
-        name: mixtureName || currentMixture.name,
-        fiberComponents: fiberComponents.map(fc => ({ ...fc })),
-        paperChemicalId: selectedChemical,
-        paperChemicalDosage: chemicalDosage,
-        targetGrammage,
-        targetThickness,
-        targetWidth,
-        targetHeight,
+        name: mixtureName || updated.name,
+        fiberComponents: updated.fiberComponents.map(fc => ({ ...fc })),
+        paperChemicalId: updated.paperChemicalId,
+        paperChemicalDosage: updated.paperChemicalDosage,
+        targetGrammage: updated.targetGrammage,
+        targetThickness: updated.targetThickness,
+        targetWidth: updated.targetWidth,
+        targetHeight: updated.targetHeight,
       });
     }
     setShowSaveModal(false);
-    setAlertState({ show: true, level: 'success', message: '方案已覆盖保存' });
-    setTimeout(() => setAlertState(null), 3000);
+    setTimeout(() => setAlertState(null), 3500);
   };
 
-  const handleSaveNew = () => {
+  const handleSaveNewOnly = () => {
     if (!calculationResult) return;
     addMixture({
       name: mixtureName || `配比方案 ${new Date().toLocaleDateString()}`,
@@ -230,10 +284,47 @@ export default function Mixture() {
       pulpConcentration: calculationResult.pulpConcentration,
       absoluteDryPulp: calculationResult.absoluteDryPulp,
       swingTimes: calculationResult.swingTimes,
-    });
+      ...(sourceFormulaId ? { sourceFormulaId } : {}),
+      ...(adjustmentFromBatch ? { adjustmentFromBatch } : {}),
+      ...(adjustmentNotes ? { adjustmentNotes } : {}),
+    } as any);
     setShowSaveModal(false);
-    setAlertState({ show: true, level: 'success', message: '已另存为新方案' });
-    setTimeout(() => setAlertState(null), 3000);
+    setAlertState({ show: true, level: 'success', message: '已另存为新配比方案', suggestion: '配方库未新增配方，仅在配比方案列表中可见' });
+    setTimeout(() => setAlertState(null), 3500);
+  };
+
+  const handleSaveNewWithFormula = () => {
+    if (!calculationResult) return;
+    const finalName = mixtureName || `新配方 ${new Date().toLocaleDateString()}`;
+    addMixture({
+      name: finalName,
+      fiberComponents,
+      paperChemicalId: selectedChemical,
+      paperChemicalDosage: chemicalDosage,
+      targetGrammage,
+      targetThickness,
+      targetWidth,
+      targetHeight,
+      pulpConcentration: calculationResult.pulpConcentration,
+      absoluteDryPulp: calculationResult.absoluteDryPulp,
+      swingTimes: calculationResult.swingTimes,
+      ...(adjustmentFromBatch ? { adjustmentFromBatch } : {}),
+      ...(adjustmentNotes ? { adjustmentNotes } : {}),
+    } as any);
+    const latest = getLatestMixture();
+    if (latest) {
+      createFormulaFromMixture(latest, finalName, adjustmentNotes || '由试算台另存生成');
+      setAlertState({ show: true, level: 'success', message: '已生成新配方并保存配比', suggestion: `配方库和配比方案同时新增「${finalName}」` });
+    } else {
+      setAlertState({ show: true, level: 'success', message: '已保存' });
+    }
+    setShowSaveModal(false);
+    setTimeout(() => setAlertState(null), 3500);
+  };
+
+  const getLatestMixture = (): PulpMixture | null => {
+    const all = useAppStore.getState().mixtures;
+    return all.length > 0 ? all[all.length - 1] : null;
   };
 
   const handleResetToOriginal = () => {
@@ -246,6 +337,20 @@ export default function Mixture() {
     setTargetThickness(originalFormula.targetThickness);
     setTargetWidth(originalFormula.targetWidth);
     setTargetHeight(originalFormula.targetHeight);
+  };
+
+  const goToFormula = () => {
+    if (sourceFormulaId) navigate('/formulas');
+  };
+
+  const goToThickness = () => {
+    const mix = buildMixtureData();
+    if (mix) {
+      if (!currentMixture || currentMixture.id !== mix.id) {
+        setCurrentMixture(mix);
+      }
+      navigate('/thickness');
+    }
   };
 
   const hasDiffFromOriginal = useMemo(() => {
@@ -303,16 +408,33 @@ export default function Mixture() {
       {alertState && alertState.show && (
         <Alert level={alertState.level} message={alertState.message} suggestion={alertState.suggestion} />
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold font-serif-cn text-ink-black">
-            配方试算台
-          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-2xl font-bold font-serif-cn text-ink-black">配方试算台</h2>
+            {sourceFormulaName && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-ochre-red/10 text-ochre-red text-xs cursor-pointer hover:bg-ochre-red/20 transition" onClick={goToFormula}>
+                <BookOpen size={14} />
+                配方库来源：{sourceFormulaName}
+              </span>
+            )}
+            {!sourceFormulaName && currentMixture && (
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-bamboo-green/10 text-bamboo-green text-xs">
+                <Package size={14} />
+                配比方案来源：{currentMixture.name}
+              </span>
+            )}
+          </div>
           <p className="text-ash-gray mt-1">
             {originalFormula ? `基于「${originalFormula.name}」试算 — 调参后实时对比原配方` : '按目标克重计算纸浆浓度与抄纸参数'}
           </p>
+          {adjustmentNotes && (
+            <p className="text-xs text-ochre-red mt-1 bg-ochre-red/5 inline-block px-2 py-0.5 rounded">
+              💡 改进建议：{adjustmentNotes}
+            </p>
+          )}
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           {originalFormula && hasDiffFromOriginal && (
             <button
               className="btn-outline flex items-center gap-2"
@@ -330,6 +452,14 @@ export default function Mixture() {
             反推计算
           </button>
           <button
+            className="btn-outline flex items-center gap-2"
+            onClick={goToThickness}
+            disabled={!calculationResult || !percentageValidation.isValid}
+          >
+            <RulerIcon />
+            去做厚薄检测
+          </button>
+          <button
             className="btn-primary flex items-center gap-2"
             onClick={handleSaveClick}
             disabled={!calculationResult || !percentageValidation.isValid}
@@ -344,7 +474,11 @@ export default function Mixture() {
         <Card title="保存方式">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <button
-              className="p-6 rounded-lg border-2 border-gilt-gold/30 hover:border-ochre-red/50 hover:bg-ochre-red/5 transition-all text-left"
+              className={`p-6 rounded-lg border-2 transition-all text-left ${
+                !currentMixture
+                  ? 'opacity-50 cursor-not-allowed border-gray-200'
+                  : 'border-gilt-gold/30 hover:border-ochre-red/50 hover:bg-ochre-red/5'
+              }`}
               onClick={handleSaveOverwrite}
               disabled={!currentMixture}
             >
@@ -353,19 +487,37 @@ export default function Mixture() {
                 <span className="font-bold text-ink-black">覆盖当前方案</span>
               </div>
               <p className="text-sm text-ash-gray">
-                更新「{currentMixture?.name || ''}」的参数，原参数将被替换
+                {currentMixture
+                  ? sourceFormulaId
+                    ? `同步更新配方库「${sourceFormulaName}」和配比方案`
+                    : `更新配比方案「${currentMixture.name}」`
+                  : '请先加载或创建一个配比方案'}
               </p>
             </button>
+
             <button
               className="p-6 rounded-lg border-2 border-gilt-gold/30 hover:border-bamboo-green/50 hover:bg-bamboo-green/5 transition-all text-left"
-              onClick={handleSaveNew}
+              onClick={handleSaveNewOnly}
             >
               <div className="flex items-center gap-3 mb-2">
                 <Copy size={20} className="text-bamboo-green" />
-                <span className="font-bold text-ink-black">另存新方案</span>
+                <span className="font-bold text-ink-black">仅另存配比</span>
               </div>
               <p className="text-sm text-ash-gray">
-                保留原方案不变，创建一个新的配比方案
+                保留原方案不变，仅新增一个配比方案，配方库不会有变化
+              </p>
+            </button>
+
+            <button
+              className="p-6 rounded-lg border-2 border-gilt-gold/30 hover:border-gilt-gold/60 hover:bg-gilt-gold/10 transition-all text-left sm:col-span-2"
+              onClick={handleSaveNewWithFormula}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <BookOpen size={20} className="text-gilt-gold" />
+                <span className="font-bold text-ink-black">另存为 + 生成新配方</span>
+              </div>
+              <p className="text-sm text-ash-gray">
+                同时生成一份新的配比方案和一个新的配方库条目，后续可直接从配方库加载使用
               </p>
             </button>
           </div>
@@ -781,5 +933,17 @@ export default function Mixture() {
         </div>
       </div>
     </div>
+  );
+}
+
+function RulerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/>
+      <path d="m7.5 10.5 2 2"/>
+      <path d="m10.5 7.5 2 2"/>
+      <path d="m13.5 4.5 2 2"/>
+      <path d="m4.5 13.5 2 2"/>
+    </svg>
   );
 }
