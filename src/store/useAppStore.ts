@@ -60,14 +60,66 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const storedMaterials = loadMaterials();
     const storedChemicals = loadPaperChemicals();
     const storedFormulas = loadFormulas();
+    const storedMixtures = loadMixtures();
+    const storedSheetRecords = loadSheetRecords();
+
+    const materials = storedMaterials.length > 0 ? storedMaterials : mockMaterials;
+    const paperChemicals = storedChemicals.length > 0 ? storedChemicals : mockPaperChemicals;
+
+    const legacyMaterialIdMap: Record<string, string> = {
+      '1': 'mat_qingtan',
+      '2': 'mat_daocao',
+      '3': 'mat_sangpi',
+      '4': 'mat_maozhu',
+      '5': 'mat_goushu',
+    };
+    const legacyChemicalIdMap: Record<string, string> = {
+      '1': 'chem_yangtao',
+      '2': 'chem_huangshukui',
+      '3': 'chem_xianrenzhang',
+    };
+
+    const knownMaterialIds = new Set(materials.map(m => m.id));
+    const knownChemicalIds = new Set(paperChemicals.map(c => c.id));
+
+    const needsMaterialMigration = (id: string) => !knownMaterialIds.has(id) && legacyMaterialIdMap[id];
+    const needsChemicalMigration = (id: string) => !knownChemicalIds.has(id) && legacyChemicalIdMap[id];
+
+    const fixFiberComponents = (fcs: any[]) => fcs.map((fc: any) => ({
+      ...fc,
+      materialId: needsMaterialMigration(fc.materialId) ? legacyMaterialIdMap[fc.materialId] : fc.materialId,
+      materialName: needsMaterialMigration(fc.materialId)
+        ? (materials.find(m => m.id === legacyMaterialIdMap[fc.materialId])?.name || fc.materialName)
+        : fc.materialName,
+    }));
+
+    const fixMixture = (m: any) => ({
+      ...m,
+      fiberComponents: fixFiberComponents(m.fiberComponents || []),
+      paperChemicalId: needsChemicalMigration(m.paperChemicalId) ? legacyChemicalIdMap[m.paperChemicalId] : m.paperChemicalId,
+    });
+
+    const fixFormula = (f: any) => ({
+      ...f,
+      mixtureParams: {
+        ...f.mixtureParams,
+        fiberComponents: fixFiberComponents(f.mixtureParams?.fiberComponents || []),
+        paperChemicalId: needsChemicalMigration(f.mixtureParams?.paperChemicalId)
+          ? legacyChemicalIdMap[f.mixtureParams.paperChemicalId]
+          : f.mixtureParams?.paperChemicalId,
+      },
+    });
+
+    const formulas = (storedFormulas.length > 0 ? storedFormulas : mockFormulas).map(fixFormula);
+    const mixtures = storedMixtures.map(fixMixture);
 
     set({
-      materials: storedMaterials.length > 0 ? storedMaterials : mockMaterials,
-      paperChemicals: storedChemicals.length > 0 ? storedChemicals : mockPaperChemicals,
+      materials,
+      paperChemicals,
       beatingRecords: loadBeatingRecords(),
-      mixtures: loadMixtures(),
-      sheetRecords: loadSheetRecords(),
-      formulas: storedFormulas.length > 0 ? storedFormulas : mockFormulas,
+      mixtures,
+      sheetRecords: storedSheetRecords,
+      formulas,
     });
 
     if (storedMaterials.length === 0) {
@@ -76,9 +128,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (storedChemicals.length === 0) {
       savePaperChemicals(mockPaperChemicals);
     }
-    if (storedFormulas.length === 0) {
-      saveFormulas(mockFormulas);
-    }
+    saveMixtures(mixtures);
+    saveFormulas(formulas);
   },
 
   addMaterial: (material) => {

@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Calculator, ArrowLeftRight, Save } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Calculator, ArrowLeftRight, Save, Copy, RotateCcw } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
@@ -11,8 +11,19 @@ import type { FiberComponent, CalculationResult } from '@/types';
 
 const COLORS = ['#A85537', '#6B8E6B', '#C9A961', '#8B8680', '#2C2416'];
 
+type FormulaSnapshot = {
+  name: string;
+  fiberComponents: FiberComponent[];
+  paperChemicalId: string;
+  paperChemicalDosage: number;
+  targetGrammage: number;
+  targetThickness: number;
+  targetWidth: number;
+  targetHeight: number;
+};
+
 export default function Mixture() {
-  const { materials, paperChemicals, addMixture, currentMixture, setCurrentMixture } = useAppStore();
+  const { materials, paperChemicals, addMixture, updateMixture, currentMixture, setCurrentMixture } = useAppStore();
   
   const [mixtureName, setMixtureName] = useState('');
   const [fiberComponents, setFiberComponents] = useState<FiberComponent[]>([]);
@@ -26,6 +37,8 @@ export default function Mixture() {
   const [targetStrength, setTargetStrength] = useState(75);
   const [targetEvenness, setTargetEvenness] = useState(80);
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
+  const [originalFormula, setOriginalFormula] = useState<FormulaSnapshot | null>(null);
+  const [showSaveModal, setShowSaveModal] = useState(false);
   const [alertState, setAlertState] = useState<{ show: boolean; level: 'info' | 'success' | 'warning' | 'danger'; message: string; suggestion?: string } | null>(null);
 
   useEffect(() => {
@@ -53,19 +66,35 @@ export default function Mixture() {
     setTargetThickness(currentMixture.targetThickness);
     setTargetWidth(currentMixture.targetWidth);
     setTargetHeight(currentMixture.targetHeight);
-    const fiberLengthMap: Record<string, number> = {};
-    materials.forEach(m => { fiberLengthMap[m.id] = m.fiberLength; });
-    const result = calculateMixture(
-      currentMixture.fiberComponents,
-      currentMixture.targetGrammage,
-      currentMixture.targetThickness,
-      currentMixture.targetWidth,
-      currentMixture.targetHeight,
-      currentMixture.paperChemicalDosage,
-      fiberLengthMap
-    );
+    setOriginalFormula({
+      name: currentMixture.name,
+      fiberComponents: currentMixture.fiberComponents.map(fc => ({ ...fc })),
+      paperChemicalId: currentMixture.paperChemicalId,
+      paperChemicalDosage: currentMixture.paperChemicalDosage,
+      targetGrammage: currentMixture.targetGrammage,
+      targetThickness: currentMixture.targetThickness,
+      targetWidth: currentMixture.targetWidth,
+      targetHeight: currentMixture.targetHeight,
+    });
+  }, [currentMixture]);
+
+  const fiberLengthMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    materials.forEach(m => { map[m.id] = m.fiberLength; });
+    return map;
+  }, [materials]);
+
+  const doCalculate = useCallback((fc: FiberComponent[], grammage: number, thickness: number, width: number, height: number, dosage: number) => {
+    return calculateMixture(fc, grammage, thickness, width, height, dosage, fiberLengthMap);
+  }, [fiberLengthMap]);
+
+  useEffect(() => {
+    if (fiberComponents.length === 0) return;
+    const totalPct = fiberComponents.reduce((s, fc) => s + fc.percentage, 0);
+    if (Math.abs(totalPct - 100) > 0.5) return;
+    const result = doCalculate(fiberComponents, targetGrammage, targetThickness, targetWidth, targetHeight, chemicalDosage);
     setCalculationResult(result);
-  }, [currentMixture, materials]);
+  }, [fiberComponents, targetGrammage, targetThickness, targetWidth, targetHeight, chemicalDosage, doCalculate]);
 
   const addFiberComponent = () => {
     if (materials.length > fiberComponents.length) {
@@ -117,24 +146,6 @@ export default function Mixture() {
     return validatePaperChemical(chemicalDosage, calculationResult?.pulpConcentration || 0.5, avgLength);
   }, [chemicalDosage, calculationResult, fiberComponents, materials]);
 
-  const handleCalculate = () => {
-    if (!percentageValidation.isValid) return;
-    
-    const fiberLengthMap: Record<string, number> = {};
-    materials.forEach(m => { fiberLengthMap[m.id] = m.fiberLength; });
-
-    const result = calculateMixture(
-      fiberComponents,
-      targetGrammage,
-      targetThickness,
-      targetWidth,
-      targetHeight,
-      chemicalDosage,
-      fiberLengthMap
-    );
-    setCalculationResult(result);
-  };
-
   const handleReverseCalculate = () => {
     const availableMaterials = materials.map(m => ({ fiberLength: m.fiberLength }));
     const result = reverseCalculateMixture(targetStrength, targetEvenness, availableMaterials);
@@ -154,9 +165,59 @@ export default function Mixture() {
     setTimeout(() => setAlertState(null), 3000);
   };
 
-  const handleSave = () => {
+  const handleSaveClick = () => {
     if (!calculationResult || !percentageValidation.isValid) return;
-    
+    setShowSaveModal(true);
+  };
+
+  const handleSaveOverwrite = () => {
+    if (!calculationResult) return;
+    if (currentMixture) {
+      updateMixture(currentMixture.id, {
+        name: mixtureName || currentMixture.name,
+        fiberComponents,
+        paperChemicalId: selectedChemical,
+        paperChemicalDosage: chemicalDosage,
+        targetGrammage,
+        targetThickness,
+        targetWidth,
+        targetHeight,
+        pulpConcentration: calculationResult.pulpConcentration,
+        absoluteDryPulp: calculationResult.absoluteDryPulp,
+        swingTimes: calculationResult.swingTimes,
+      });
+      setCurrentMixture({
+        ...currentMixture,
+        name: mixtureName || currentMixture.name,
+        fiberComponents,
+        paperChemicalId: selectedChemical,
+        paperChemicalDosage: chemicalDosage,
+        targetGrammage,
+        targetThickness,
+        targetWidth,
+        targetHeight,
+        pulpConcentration: calculationResult.pulpConcentration,
+        absoluteDryPulp: calculationResult.absoluteDryPulp,
+        swingTimes: calculationResult.swingTimes,
+      });
+      setOriginalFormula({
+        name: mixtureName || currentMixture.name,
+        fiberComponents: fiberComponents.map(fc => ({ ...fc })),
+        paperChemicalId: selectedChemical,
+        paperChemicalDosage: chemicalDosage,
+        targetGrammage,
+        targetThickness,
+        targetWidth,
+        targetHeight,
+      });
+    }
+    setShowSaveModal(false);
+    setAlertState({ show: true, level: 'success', message: '方案已覆盖保存' });
+    setTimeout(() => setAlertState(null), 3000);
+  };
+
+  const handleSaveNew = () => {
+    if (!calculationResult) return;
     addMixture({
       name: mixtureName || `配比方案 ${new Date().toLocaleDateString()}`,
       fiberComponents,
@@ -170,14 +231,53 @@ export default function Mixture() {
       absoluteDryPulp: calculationResult.absoluteDryPulp,
       swingTimes: calculationResult.swingTimes,
     });
-    
-    setAlertState({
-      show: true,
-      level: 'success',
-      message: '配比方案已保存',
-      suggestion: '可在工艺档案中查看历史记录'
-    });
+    setShowSaveModal(false);
+    setAlertState({ show: true, level: 'success', message: '已另存为新方案' });
     setTimeout(() => setAlertState(null), 3000);
+  };
+
+  const handleResetToOriginal = () => {
+    if (!originalFormula) return;
+    setMixtureName(originalFormula.name);
+    setFiberComponents(originalFormula.fiberComponents.map(fc => ({ ...fc })));
+    setSelectedChemical(originalFormula.paperChemicalId);
+    setChemicalDosage(originalFormula.paperChemicalDosage);
+    setTargetGrammage(originalFormula.targetGrammage);
+    setTargetThickness(originalFormula.targetThickness);
+    setTargetWidth(originalFormula.targetWidth);
+    setTargetHeight(originalFormula.targetHeight);
+  };
+
+  const hasDiffFromOriginal = useMemo(() => {
+    if (!originalFormula) return false;
+    return (
+      mixtureName !== originalFormula.name ||
+      targetGrammage !== originalFormula.targetGrammage ||
+      targetThickness !== originalFormula.targetThickness ||
+      targetWidth !== originalFormula.targetWidth ||
+      targetHeight !== originalFormula.targetHeight ||
+      chemicalDosage !== originalFormula.paperChemicalDosage ||
+      selectedChemical !== originalFormula.paperChemicalId ||
+      JSON.stringify(fiberComponents) !== JSON.stringify(originalFormula.fiberComponents)
+    );
+  }, [originalFormula, mixtureName, targetGrammage, targetThickness, targetWidth, targetHeight, chemicalDosage, selectedChemical, fiberComponents]);
+
+  const originalCalcResult = useMemo(() => {
+    if (!originalFormula) return null;
+    return doCalculate(
+      originalFormula.fiberComponents,
+      originalFormula.targetGrammage,
+      originalFormula.targetThickness,
+      originalFormula.targetWidth,
+      originalFormula.targetHeight,
+      originalFormula.paperChemicalDosage
+    );
+  }, [originalFormula, doCalculate]);
+
+  const diffValue = (orig: number | undefined, curr: number | undefined) => {
+    if (orig === undefined || curr === undefined || orig === curr) return null;
+    const diff = curr - orig;
+    return diff > 0 ? `+${diff.toFixed(diff % 1 === 0 ? 0 : 2)}` : diff.toFixed(diff % 1 === 0 ? 0 : 2);
   };
 
   const pieData = useMemo(() => {
@@ -205,10 +305,23 @@ export default function Mixture() {
       )}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold font-serif-cn text-ink-black">纸浆配比</h2>
-          <p className="text-ash-gray mt-1">按目标克重计算纸浆浓度与抄纸参数</p>
+          <h2 className="text-2xl font-bold font-serif-cn text-ink-black">
+            配方试算台
+          </h2>
+          <p className="text-ash-gray mt-1">
+            {originalFormula ? `基于「${originalFormula.name}」试算 — 调参后实时对比原配方` : '按目标克重计算纸浆浓度与抄纸参数'}
+          </p>
         </div>
         <div className="flex gap-3">
+          {originalFormula && hasDiffFromOriginal && (
+            <button
+              className="btn-outline flex items-center gap-2"
+              onClick={handleResetToOriginal}
+            >
+              <RotateCcw size={18} />
+              还原配方
+            </button>
+          )}
           <button
             className={`btn-outline flex items-center gap-2 ${showReverse ? 'bg-ochre-red/10 text-ochre-red' : ''}`}
             onClick={() => setShowReverse(!showReverse)}
@@ -218,14 +331,49 @@ export default function Mixture() {
           </button>
           <button
             className="btn-primary flex items-center gap-2"
-            onClick={handleSave}
-            disabled={!calculationResult}
+            onClick={handleSaveClick}
+            disabled={!calculationResult || !percentageValidation.isValid}
           >
             <Save size={18} />
             保存方案
           </button>
         </div>
       </div>
+
+      {showSaveModal && (
+        <Card title="保存方式">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button
+              className="p-6 rounded-lg border-2 border-gilt-gold/30 hover:border-ochre-red/50 hover:bg-ochre-red/5 transition-all text-left"
+              onClick={handleSaveOverwrite}
+              disabled={!currentMixture}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <Save size={20} className="text-ochre-red" />
+                <span className="font-bold text-ink-black">覆盖当前方案</span>
+              </div>
+              <p className="text-sm text-ash-gray">
+                更新「{currentMixture?.name || ''}」的参数，原参数将被替换
+              </p>
+            </button>
+            <button
+              className="p-6 rounded-lg border-2 border-gilt-gold/30 hover:border-bamboo-green/50 hover:bg-bamboo-green/5 transition-all text-left"
+              onClick={handleSaveNew}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <Copy size={20} className="text-bamboo-green" />
+                <span className="font-bold text-ink-black">另存新方案</span>
+              </div>
+              <p className="text-sm text-ash-gray">
+                保留原方案不变，创建一个新的配比方案
+              </p>
+            </button>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button className="btn-outline" onClick={() => setShowSaveModal(false)}>取消</button>
+          </div>
+        </Card>
+      )}
 
       {showReverse && (
         <Card title="反推计算 - 按目标纸性反推参数">
@@ -427,20 +575,107 @@ export default function Mixture() {
               </div>
             )}
           </Card>
-
-          <div className="flex justify-center">
-            <button
-              className="btn-primary text-lg px-8 py-3 flex items-center gap-2"
-              onClick={handleCalculate}
-              disabled={!percentageValidation.isValid}
-            >
-              <Calculator size={24} />
-              计算配比参数
-            </button>
-          </div>
         </div>
 
         <div className="space-y-6">
+          {originalFormula && originalCalcResult && (
+            <Card title="原配方 vs 试算对比" subtitle="实时对比调整前后的关键参数">
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-3 gap-2 pb-2 border-b border-gilt-gold/20 font-medium text-ash-gray">
+                  <span>参数</span>
+                  <span className="text-center">原配方</span>
+                  <span className="text-center">试算</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">克重</span>
+                  <span className="text-center">{originalFormula.targetGrammage}</span>
+                  <span className="text-center font-bold">{targetGrammage}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">厚度</span>
+                  <span className="text-center">{originalFormula.targetThickness}</span>
+                  <span className="text-center font-bold">{targetThickness}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">幅面</span>
+                  <span className="text-center">{originalFormula.targetWidth}×{originalFormula.targetHeight}</span>
+                  <span className="text-center font-bold">{targetWidth}×{targetHeight}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">纸药</span>
+                  <span className="text-center">{originalFormula.paperChemicalDosage}%</span>
+                  <span className="text-center font-bold">{chemicalDosage}%</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gilt-gold/20">
+                  <span className="text-ash-gray">浓度</span>
+                  <span className="text-center">{originalCalcResult.pulpConcentration}%</span>
+                  <span className="text-center font-bold">
+                    {calculationResult?.pulpConcentration ?? '-'}%
+                    {diffValue(originalCalcResult.pulpConcentration, calculationResult?.pulpConcentration) && (
+                      <span className="ml-1 text-xs text-ochre-red">{diffValue(originalCalcResult.pulpConcentration, calculationResult?.pulpConcentration)}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">荡料次数</span>
+                  <span className="text-center">{originalCalcResult.swingTimes}</span>
+                  <span className="text-center font-bold text-ochre-red">
+                    {calculationResult?.swingTimes ?? '-'}
+                    {diffValue(originalCalcResult.swingTimes, calculationResult?.swingTimes) && (
+                      <span className="ml-1 text-xs">{diffValue(originalCalcResult.swingTimes, calculationResult?.swingTimes)}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">绝干浆</span>
+                  <span className="text-center">{originalCalcResult.absoluteDryPulp}g</span>
+                  <span className="text-center font-bold">
+                    {calculationResult?.absoluteDryPulp ?? '-'}g
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">强度</span>
+                  <span className="text-center">{originalCalcResult.expectedStrength}</span>
+                  <span className="text-center font-bold text-bamboo-green">
+                    {calculationResult?.expectedStrength ?? '-'}
+                    {diffValue(originalCalcResult.expectedStrength, calculationResult?.expectedStrength) && (
+                      <span className="ml-1 text-xs">{diffValue(originalCalcResult.expectedStrength, calculationResult?.expectedStrength)}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">匀度</span>
+                  <span className="text-center">{originalCalcResult.expectedEvenness}</span>
+                  <span className="text-center font-bold text-bamboo-green">
+                    {calculationResult?.expectedEvenness ?? '-'}
+                    {diffValue(originalCalcResult.expectedEvenness, calculationResult?.expectedEvenness) && (
+                      <span className="ml-1 text-xs">{diffValue(originalCalcResult.expectedEvenness, calculationResult?.expectedEvenness)}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="text-ash-gray">收缩率</span>
+                  <span className="text-center">{originalCalcResult.estimatedShrinkage}%</span>
+                  <span className="text-center font-bold">
+                    {calculationResult?.estimatedShrinkage ?? '-'}%
+                  </span>
+                </div>
+                {originalFormula.fiberComponents.map((origFc, i) => {
+                  const currFc = fiberComponents[i];
+                  return (
+                    <div key={i} className="grid grid-cols-3 gap-2 pt-2 border-t border-gilt-gold/10">
+                      <span className="text-ash-gray">{origFc.materialName}</span>
+                      <span className="text-center">{origFc.percentage}% / {origFc.beatingDegree}°</span>
+                      <span className="text-center font-bold">
+                        {currFc ? `${currFc.percentage}% / ${currFc.beatingDegree}°` : '-'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
           <Card title="配比比例">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -466,7 +701,7 @@ export default function Mixture() {
 
           {calculationResult && (
             <>
-              <Card title="计算结果">
+              <Card title="试算结果">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-xuan-paper/50 rounded-lg">
                     <span className="text-ash-gray">纸浆浓度</span>
@@ -538,8 +773,8 @@ export default function Mixture() {
             <Card>
               <div className="text-center py-12 text-ash-gray">
                 <Calculator size={48} className="mx-auto mb-4 opacity-30" />
-                <p>设置参数后点击计算</p>
-                <p className="text-sm mt-1">查看配比结果和性能预测</p>
+                <p>设置参数后实时计算</p>
+                <p className="text-sm mt-1">配比总和=100%时自动显示结果</p>
               </div>
             </Card>
           )}

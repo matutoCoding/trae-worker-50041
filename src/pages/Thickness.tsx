@@ -121,6 +121,24 @@ export default function Thickness() {
   const handleSave = () => {
     if (!activeMixture || thicknessMap.length === 0) return;
     
+    const reportLines = [
+      `批次 ${batchNo} 检测报告`,
+      `配比方案：${activeMixture.name}`,
+      `纤维：${activeMixture.fiberComponents.map(fc => `${fc.materialName} ${fc.percentage}%/${fc.beatingDegree}°SR`).join('，')}`,
+      `平均纤维长度：${avgFiberLength.toFixed(2)}mm`,
+      `目标克重：${activeMixture.targetGrammage}g/m² / 实际：${actualGrammage}g/m²`,
+      `目标厚度：${activeMixture.targetThickness}μm / 实际：${avgActualThickness}μm`,
+      `厚度偏差率：${overallDeviation}%`,
+      `抗张强度：${tensileStrength}`,
+      `匀度：${Math.max(0, 100 - overallDeviation * 2)}`,
+      `云絮：${cloudFlocs.length > 0 ? cloudFlocs.length + '处（' + cloudFlocs.map(f => f.severity === 'severe' ? '严重' : f.severity === 'moderate' ? '中等' : '轻微').join('、') + '）' : '无'}`,
+      `帘纹：${grainPattern ? grainPattern.patternType + '（' + grainPattern.description + '，质量' + grainPattern.quality + '分）' : '-'}`,
+      `压榨${pressPressure}kg / 晒纸${dryingTemp}°C`,
+      `收缩率：${simulationResult?.shrinkageRate ?? '-'}% / 平整度：${simulationResult?.smoothness ?? '-'}分`,
+      ...(simulationResult?.riskOfCracking ? ['⚠ 存在开裂风险'] : []),
+      ...(alerts.length > 0 ? alerts.map(a => `[${a.level === 'danger' ? '风险' : a.level === 'warning' ? '预警' : '提示'}] ${a.message}`) : []),
+    ];
+    
     const record: Omit<SheetRecord, 'id' | 'createdAt'> = {
       mixtureId: activeMixture.id,
       batchNo,
@@ -138,11 +156,10 @@ export default function Thickness() {
       evenness: Math.max(0, 100 - overallDeviation * 2),
       riskAlerts: alerts,
       notes,
+      reportSummary: reportLines.join('\n'),
     };
     
     addSheetRecord(record);
-    
-    alert('抄纸记录已保存到工艺档案');
     handleReset();
   };
 

@@ -201,6 +201,15 @@ export default function Archives() {
 
                 {isExpanded && (
                   <div className="mt-6 pt-6 border-t border-gilt-gold/20 space-y-6">
+                    {record.reportSummary && (
+                      <div>
+                        <h5 className="font-bold text-ink-black mb-3">批次检测报告</h5>
+                        <div className="bg-xuan-paper/50 p-4 rounded-lg border border-gilt-gold/20 text-sm text-ink-black whitespace-pre-line font-mono leading-relaxed">
+                          {record.reportSummary}
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <h5 className="font-bold text-ink-black mb-3">纤维原料</h5>
                       <p className="text-sm text-ash-gray">{getFiberSummary(record.mixtureId)}</p>

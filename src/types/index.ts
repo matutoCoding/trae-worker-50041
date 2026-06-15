@@ -98,6 +98,7 @@ export interface SheetRecord {
   evenness: number;
   riskAlerts: RiskAlert[];
   notes: string;
+  reportSummary: string;
   createdAt: string;
 }
 
