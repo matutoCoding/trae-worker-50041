@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Ruler, AlertTriangle, RefreshCw, Thermometer, Gauge, Save, Eye } from 'lucide-react';
+import { Ruler, RefreshCw, Thermometer, Gauge, Save, Eye } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
 import Alert from '@/components/Alert';
@@ -21,7 +21,6 @@ export default function Thickness() {
   const [alerts, setAlerts] = useState<RiskAlert[]>([]);
   const [pressPressure, setPressPressure] = useState(25);
   const [dryingTemp, setDryingTemp] = useState(45);
-  const [manualThickness, setManualThickness] = useState<number[]>([]);
   const [notes, setNotes] = useState('');
   const [batchNo, setBatchNo] = useState('');
   const [showSimulation, setShowSimulation] = useState(false);

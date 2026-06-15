@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Calculator, ArrowLeftRight, PieChart, Activity, AlertTriangle, Save } from 'lucide-react';
+import { Calculator, ArrowLeftRight, Save } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
@@ -29,6 +29,7 @@ export default function Mixture() {
   const [alertState, setAlertState] = useState<{ show: boolean; level: 'info' | 'success' | 'warning' | 'danger'; message: string; suggestion?: string } | null>(null);
 
   useEffect(() => {
+    if (currentMixture) return;
     if (materials.length > 0 && fiberComponents.length === 0) {
       setFiberComponents([{
         materialId: materials[0].id,
@@ -40,7 +41,31 @@ export default function Mixture() {
     if (paperChemicals.length > 0 && !selectedChemical) {
       setSelectedChemical(paperChemicals[0].id);
     }
-  }, [materials, paperChemicals]);
+  }, [materials, paperChemicals, currentMixture, fiberComponents.length, selectedChemical]);
+
+  useEffect(() => {
+    if (!currentMixture) return;
+    setMixtureName(currentMixture.name);
+    setFiberComponents(currentMixture.fiberComponents.map(fc => ({ ...fc })));
+    setSelectedChemical(currentMixture.paperChemicalId);
+    setChemicalDosage(currentMixture.paperChemicalDosage);
+    setTargetGrammage(currentMixture.targetGrammage);
+    setTargetThickness(currentMixture.targetThickness);
+    setTargetWidth(currentMixture.targetWidth);
+    setTargetHeight(currentMixture.targetHeight);
+    const fiberLengthMap: Record<string, number> = {};
+    materials.forEach(m => { fiberLengthMap[m.id] = m.fiberLength; });
+    const result = calculateMixture(
+      currentMixture.fiberComponents,
+      currentMixture.targetGrammage,
+      currentMixture.targetThickness,
+      currentMixture.targetWidth,
+      currentMixture.targetHeight,
+      currentMixture.paperChemicalDosage,
+      fiberLengthMap
+    );
+    setCalculationResult(result);
+  }, [currentMixture, materials]);
 
   const addFiberComponent = () => {
     if (materials.length > fiberComponents.length) {
@@ -95,13 +120,17 @@ export default function Mixture() {
   const handleCalculate = () => {
     if (!percentageValidation.isValid) return;
     
+    const fiberLengthMap: Record<string, number> = {};
+    materials.forEach(m => { fiberLengthMap[m.id] = m.fiberLength; });
+
     const result = calculateMixture(
       fiberComponents,
       targetGrammage,
       targetThickness,
       targetWidth,
       targetHeight,
-      chemicalDosage
+      chemicalDosage,
+      fiberLengthMap
     );
     setCalculationResult(result);
   };

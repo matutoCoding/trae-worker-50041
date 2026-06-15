@@ -53,14 +53,18 @@ export function calculateMixture(
   targetThickness: number,
   targetWidth: number,
   targetHeight: number,
-  paperChemicalDosage: number
+  paperChemicalDosage: number,
+  fiberLengthMap?: Record<string, number>
 ): CalculationResult {
   const area = (targetWidth / 1000) * (targetHeight / 1000);
   const pulpConcentration = calculatePulpConcentration(targetGrammage, area);
   const absoluteDryPulp = calculateAbsoluteDryPulp(targetGrammage, area);
   const swingTimes = calculateSwingTimes(targetThickness, pulpConcentration);
 
-  const avgFiberLength = fiberComponents.reduce((sum, fc) => sum + fc.percentage * 0.02, 0);
+  const avgFiberLength = fiberComponents.reduce((sum, fc) => {
+    const length = fiberLengthMap?.[fc.materialId] ?? 2;
+    return sum + fc.percentage * length * 0.01;
+  }, 0);
   const avgBeatingDegree = fiberComponents.reduce((sum, fc) => sum + fc.percentage * fc.beatingDegree * 0.01, 0);
   const fiberRatio = Math.max(...fiberComponents.map(fc => fc.percentage)) / 100;
 

@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react';
-import { Search, Calendar, FileText, Eye, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Calendar, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
 import Alert from '@/components/Alert';
 import type { SheetRecord } from '@/types';
 
 export default function Archives() {
-  const { sheetRecords, mixtures, materials, deleteFormula } = useAppStore();
+  const { sheetRecords, mixtures } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -16,10 +16,18 @@ export default function Archives() {
       .filter(record => {
         const matchesSearch = record.batchNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
           record.notes.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesSearch;
+        if (!matchesSearch) return false;
+
+        const dangerCount = record.riskAlerts.filter(a => a.level === 'danger').length;
+        const warningCount = record.riskAlerts.filter(a => a.level === 'warning').length;
+
+        if (selectedType === 'normal') return dangerCount === 0 && warningCount === 0;
+        if (selectedType === 'warning') return warningCount > 0 && dangerCount === 0;
+        if (selectedType === 'danger') return dangerCount > 0;
+        return true;
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [sheetRecords, searchQuery]);
+  }, [sheetRecords, searchQuery, selectedType]);
 
   const getMixtureName = (mixtureId: string) => {
     const mixture = mixtures.find(m => m.id === mixtureId);

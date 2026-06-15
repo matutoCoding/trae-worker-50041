@@ -1,12 +1,14 @@
 import { useState, useMemo } from 'react';
-import { BookOpen, Star, Plus, Trash2, Download, GitCompare, Heart, HeartOff, Search, X, AlertTriangle, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { BookOpen, Star, Plus, Trash2, Download, GitCompare, Search, X, AlertTriangle, AlertCircle } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import Card from '@/components/Card';
 import Alert from '@/components/Alert';
 import type { Formula } from '@/types';
 
 export default function Formulas() {
-  const { formulas, mixtures, currentMixture, addFormula, updateFormula, deleteFormula, toggleFavorite, loadFormula, setCurrentMixture } = useAppStore();
+  const { formulas, mixtures, currentMixture, addFormula, deleteFormula, toggleFavorite, loadFormula, setCurrentMixture } = useAppStore();
+  const navigate = useNavigate();
   
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
@@ -105,13 +107,7 @@ export default function Formulas() {
     const mixture = loadFormula(formula.id);
     if (mixture) {
       setCurrentMixture(mixture);
-      setAlertState({
-        show: true,
-        level: 'success',
-        message: `已加载配方：${formula.name}`,
-        suggestion: '可在配比页查看和调整参数'
-      });
-      setTimeout(() => setAlertState(null), 3000);
+      navigate('/mixture');
     }
   };
 

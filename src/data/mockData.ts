@@ -3,7 +3,7 @@ import { generateId } from '@/utils/storage';
 
 export const mockMaterials: FiberMaterial[] = [
   {
-    id: generateId(),
+    id: 'mat_qingtan',
     name: '青檀树皮',
     type: 'bark',
     fiberLength: 2.5,
@@ -13,7 +13,7 @@ export const mockMaterials: FiberMaterial[] = [
     createdAt: new Date().toISOString(),
   },
   {
-    id: generateId(),
+    id: 'mat_daocao',
     name: '沙田稻草',
     type: 'straw',
     fiberLength: 1.8,
@@ -23,7 +23,7 @@ export const mockMaterials: FiberMaterial[] = [
     createdAt: new Date().toISOString(),
   },
   {
-    id: generateId(),
+    id: 'mat_sangpi',
     name: '桑树皮',
     type: 'bark',
     fiberLength: 3.2,
@@ -33,7 +33,7 @@ export const mockMaterials: FiberMaterial[] = [
     createdAt: new Date().toISOString(),
   },
   {
-    id: generateId(),
+    id: 'mat_maozhu',
     name: '毛竹',
     type: 'bamboo',
     fiberLength: 2.0,
@@ -43,7 +43,7 @@ export const mockMaterials: FiberMaterial[] = [
     createdAt: new Date().toISOString(),
   },
   {
-    id: generateId(),
+    id: 'mat_goushu',
     name: '构树皮',
     type: 'bark',
     fiberLength: 2.8,
@@ -56,7 +56,7 @@ export const mockMaterials: FiberMaterial[] = [
 
 export const mockPaperChemicals: PaperChemical[] = [
   {
-    id: generateId(),
+    id: 'chem_yangtao',
     name: '杨桃藤汁',
     type: 'mucilage',
     dosageRatio: 0.8,
@@ -64,7 +64,7 @@ export const mockPaperChemicals: PaperChemical[] = [
     description: '传统纸药，悬浮效果好，不影响纸张颜色',
   },
   {
-    id: generateId(),
+    id: 'chem_huangshukui',
     name: '黄蜀葵根',
     type: 'mucilage',
     dosageRatio: 0.6,
@@ -72,7 +72,7 @@ export const mockPaperChemicals: PaperChemical[] = [
     description: '粘性强，用量少，悬浮效果极佳',
   },
   {
-    id: generateId(),
+    id: 'chem_xianrenzhang',
     name: '仙人掌汁',
     type: 'mucilage',
     dosageRatio: 1.0,
@@ -90,10 +90,10 @@ export const mockFormulas: Formula[] = [
     mixtureParams: {
       name: '净皮宣配比',
       fiberComponents: [
-        { materialId: '1', materialName: '青檀树皮', percentage: 80, beatingDegree: 45 },
-        { materialId: '2', materialName: '沙田稻草', percentage: 20, beatingDegree: 38 },
+        { materialId: 'mat_qingtan', materialName: '青檀树皮', percentage: 80, beatingDegree: 45 },
+        { materialId: 'mat_daocao', materialName: '沙田稻草', percentage: 20, beatingDegree: 38 },
       ],
-      paperChemicalId: '1',
+      paperChemicalId: 'chem_yangtao',
       paperChemicalDosage: 0.8,
       targetGrammage: 38,
       targetThickness: 65,
@@ -120,10 +120,10 @@ export const mockFormulas: Formula[] = [
     mixtureParams: {
       name: '棉料宣配比',
       fiberComponents: [
-        { materialId: '1', materialName: '青檀树皮', percentage: 60, beatingDegree: 42 },
-        { materialId: '2', materialName: '沙田稻草', percentage: 40, beatingDegree: 35 },
+        { materialId: 'mat_qingtan', materialName: '青檀树皮', percentage: 60, beatingDegree: 42 },
+        { materialId: 'mat_daocao', materialName: '沙田稻草', percentage: 40, beatingDegree: 35 },
       ],
-      paperChemicalId: '1',
+      paperChemicalId: 'chem_yangtao',
       paperChemicalDosage: 0.7,
       targetGrammage: 35,
       targetThickness: 60,
@@ -150,9 +150,9 @@ export const mockFormulas: Formula[] = [
     mixtureParams: {
       name: '桑皮纸配比',
       fiberComponents: [
-        { materialId: '3', materialName: '桑树皮', percentage: 100, beatingDegree: 50 },
+        { materialId: 'mat_sangpi', materialName: '桑树皮', percentage: 100, beatingDegree: 50 },
       ],
-      paperChemicalId: '2',
+      paperChemicalId: 'chem_huangshukui',
       paperChemicalDosage: 0.6,
       targetGrammage: 45,
       targetThickness: 75,
