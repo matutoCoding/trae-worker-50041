@@ -520,58 +520,102 @@ export default function Archives() {
                     {record.riskAlerts.length > 0 && (
                       <div className="pt-4 border-t border-gilt-gold/20">
                         <div className="text-xs text-ochre-red mb-2">
-                          💡 根据本次预警生成一份调整草案，去配方试算台改进参数
+                          💡 根据本次预警生成一份调整草案，自动优化7类参数，去配方试算台继续改进
                         </div>
                         <button
                           className="btn-secondary flex items-center gap-2"
                           onClick={() => {
                             const mix = mixtures.find(m => m.id === record.mixtureId);
                             if (!mix) return;
+
                             const suggestions: string[] = [];
-                            let adjustedChemical = mix.paperChemicalDosage;
-                            let adjustedGrammage = mix.targetGrammage;
-                            let adjustedThickness = mix.targetThickness;
+                            const params = {
+                              chemicalDosage: mix.paperChemicalDosage,
+                              swingTimes: mix.swingTimes,
+                              targetThickness: mix.targetThickness,
+                              targetGrammage: mix.targetGrammage,
+                              dryingTemp: record.dryingTemp,
+                              pressPressure: record.pressPressure,
+                              beatingAdjust: 0,
+                            };
+
                             record.riskAlerts.forEach(a => {
-                              if (a.type === 'uneven_thickness') {
-                                adjustedChemical = Math.min(2, adjustedChemical + 0.2);
-                                suggestions.push('厚薄不均 → 增加纸药0.2%');
-                              }
-                              if (a.type === 'flocculation') {
-                                adjustedChemical = Math.min(2.5, adjustedChemical + 0.3);
-                                suggestions.push('纤维絮聚 → 增加纸药0.3%');
-                              }
-                              if (a.type === 'tearing') {
-                                adjustedChemical = Math.min(2, adjustedChemical + 0.15);
-                                suggestions.push('揭纸破损 → 增加纸药0.15%');
-                              }
-                              if (a.type === 'excessive_shrinkage') {
-                                adjustedThickness = Math.round(adjustedThickness * 1.05);
-                                adjustedGrammage = Math.round(adjustedGrammage * 1.03);
-                                suggestions.push('收缩过大 → 增大目标厚度5%、克重3%');
+                              switch (a.type) {
+                                case 'uneven_thickness':
+                                  params.swingTimes = Math.min(12, params.swingTimes + 1);
+                                  params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.15).toFixed(2));
+                                  suggestions.push('厚薄不均 → 荡料+1次，纸药+0.15%');
+                                  break;
+                                case 'flocculation':
+                                  params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.25).toFixed(2));
+                                  params.swingTimes = Math.min(12, params.swingTimes + 1);
+                                  suggestions.push('纤维絮聚 → 纸药+0.25%，荡料+1次');
+                                  break;
+                                case 'tearing':
+                                  params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.15).toFixed(2));
+                                  params.dryingTemp = Math.max(25, params.dryingTemp - 5);
+                                  suggestions.push('揭纸破损 → 纸药+0.15%，晒纸降温5°C');
+                                  break;
+                                case 'excessive_shrinkage':
+                                  params.pressPressure = Math.max(5, params.pressPressure - 4);
+                                  params.dryingTemp = Math.max(25, params.dryingTemp - 8);
+                                  params.targetThickness = Math.round(params.targetThickness * 1.04);
+                                  params.targetGrammage = Math.round(params.targetGrammage * 1.02);
+                                  suggestions.push('收缩过大 → 压榨降4kg、晒纸降8°C，目标厚度+4%、克重+2%');
+                                  break;
+                                case 'high_deviation':
+                                  params.swingTimes = Math.min(12, params.swingTimes + 1);
+                                  params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.1).toFixed(2));
+                                  suggestions.push('偏差过大 → 荡料+1次，纸药+0.1%');
+                                  break;
+                                case 'low_strength':
+                                  params.beatingAdjust = Math.min(15, params.beatingAdjust + 8);
+                                  params.pressPressure = Math.min(50, params.pressPressure + 3);
+                                  suggestions.push('强度偏弱 → 打浆度+8°SR，压榨压力+3kg');
+                                  break;
+                                case 'low_evenness':
+                                  params.chemicalDosage = Math.min(2.5, +(params.chemicalDosage + 0.12).toFixed(2));
+                                  params.swingTimes = Math.min(12, params.swingTimes + 1);
+                                  suggestions.push('匀度偏低 → 纸药+0.12%，荡料+1次');
+                                  break;
                               }
                             });
-                            const adjustNotes = `来自批次 ${record.batchNo} 改进：${suggestions.join('；')}`;
+
+                            const dangerCount = record.riskAlerts.filter(a => a.level === 'danger').length;
+                            const warningCount = record.riskAlerts.filter(a => a.level === 'warning').length;
+                            const adjustNotes = `来自批次 ${record.batchNo} 检测改进（${dangerCount}风险${warningCount}预警）：${suggestions.join('；')}`;
+
+                            const improvedFiberComponents = mix.fiberComponents.map(fc => ({
+                              ...fc,
+                              beatingDegree: Math.min(95, fc.beatingDegree + params.beatingAdjust),
+                            }));
+
                             addMixture({
                               name: `${mix.name}·改进版`,
-                              fiberComponents: mix.fiberComponents,
+                              fiberComponents: improvedFiberComponents,
                               paperChemicalId: mix.paperChemicalId,
-                              paperChemicalDosage: adjustedChemical,
-                              targetGrammage: adjustedGrammage,
-                              targetThickness: adjustedThickness,
+                              paperChemicalDosage: params.chemicalDosage,
+                              targetGrammage: params.targetGrammage,
+                              targetThickness: params.targetThickness,
                               targetWidth: mix.targetWidth,
                               targetHeight: mix.targetHeight,
                               pulpConcentration: mix.pulpConcentration,
                               absoluteDryPulp: mix.absoluteDryPulp,
-                              swingTimes: mix.swingTimes,
+                              swingTimes: params.swingTimes,
                               sourceFormulaId: mix.sourceFormulaId,
                               adjustmentFromBatch: record.batchNo,
                               adjustmentNotes: adjustNotes,
+                              suggestedPressPressure: params.pressPressure,
+                              suggestedDryingTemp: params.dryingTemp,
                             } as any);
-                            const latest = useAppStore.getState().mixtures;
-                            if (latest.length > 0) {
-                              setCurrentMixture(latest[latest.length - 1]);
-                            }
-                            navigate('/mixture');
+
+                            setTimeout(() => {
+                              const latest = useAppStore.getState().mixtures;
+                              if (latest.length > 0) {
+                                setCurrentMixture(latest[latest.length - 1]);
+                              }
+                              navigate('/mixture');
+                            }, 30);
                           }}
                         >
                           → 带回配方试算台，生成调整草案

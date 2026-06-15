@@ -4,7 +4,7 @@ interface CardProps {
   children: ReactNode;
   className?: string;
   title?: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
 }
 
 export default function Card({ children, className = '', title, subtitle }: CardProps) {

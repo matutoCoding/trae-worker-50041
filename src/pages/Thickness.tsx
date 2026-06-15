@@ -32,17 +32,33 @@ export default function Thickness() {
     setBatchNo(generateBatchNo());
   }, []);
 
+  const activeMixture = useMemo(() => {
+    return mixtures.find(m => m.id === selectedMixture) || currentMixture;
+  }, [mixtures, selectedMixture, currentMixture]);
+
   useEffect(() => {
     if (mixtures.length > 0 && !selectedMixture && currentMixture) {
       setSelectedMixture(currentMixture.id);
+      if (typeof currentMixture.suggestedPressPressure === 'number') {
+        setPressPressure(currentMixture.suggestedPressPressure);
+      }
+      if (typeof currentMixture.suggestedDryingTemp === 'number') {
+        setDryingTemp(currentMixture.suggestedDryingTemp);
+      }
     } else if (mixtures.length > 0 && !selectedMixture) {
       setSelectedMixture(mixtures[0].id);
     }
   }, [mixtures, currentMixture, selectedMixture]);
 
-  const activeMixture = useMemo(() => {
-    return mixtures.find(m => m.id === selectedMixture) || currentMixture;
-  }, [mixtures, selectedMixture, currentMixture]);
+  useEffect(() => {
+    if (!activeMixture) return;
+    if (typeof activeMixture.suggestedPressPressure === 'number') {
+      setPressPressure(prev => prev === 25 ? (activeMixture.suggestedPressPressure as number) : prev);
+    }
+    if (typeof activeMixture.suggestedDryingTemp === 'number') {
+      setDryingTemp(prev => prev === 45 ? (activeMixture.suggestedDryingTemp as number) : prev);
+    }
+  }, [activeMixture?.id]);
 
   const avgFiberLength = useMemo(() => {
     if (!activeMixture) return 2;
@@ -232,6 +248,8 @@ export default function Thickness() {
       sourceFormulaId: activeMixture.sourceFormulaId,
       adjustmentFromBatch: batchNo,
       adjustmentNotes: adjustNotes,
+      suggestedPressPressure: params.pressPressure,
+      suggestedDryingTemp: params.dryingTemp,
     };
 
     return {
@@ -556,7 +574,7 @@ export default function Thickness() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 rounded bg-vermilion/80"></div>
-                  <span className="deviation-warning">超标 (>10%)</span>
+                  <span className="deviation-warning">超标 {'(>10%)'}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 rounded-full bg-vermilion opacity-60 animate-pulse"></div>

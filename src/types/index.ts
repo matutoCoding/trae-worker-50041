@@ -56,6 +56,8 @@ export interface PulpMixture {
   sourceFormulaId?: string;
   adjustmentFromBatch?: string;
   adjustmentNotes?: string;
+  suggestedPressPressure?: number;
+  suggestedDryingTemp?: number;
   createdAt: string;
 }
 

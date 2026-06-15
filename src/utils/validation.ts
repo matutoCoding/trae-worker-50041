@@ -118,7 +118,7 @@ export function checkShrinkageRisk(
   dryingTemp: number,
   pressPressure: number
 ): RiskAlert | null {
-  const estimatedShrinkage = 8 + beatingDegree * 0.05 + (dryingTemp - 25) * 0.1;
+  const estimatedShrinkage = 8 + beatingDegree * 0.05 + (dryingTemp - 25) * 0.1 + Math.max(0, (pressPressure - 20)) * 0.08;
 
   if (estimatedShrinkage > 15) {
     return {
